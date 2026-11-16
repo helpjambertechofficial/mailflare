@@ -2,8 +2,8 @@ name: Sync from Upstream & Deploy
 
 on:
   schedule:
-    - cron: '0 3 * * *'   # Daily at 3am UTC
-  workflow_dispatch:        # Manual trigger bhi chalega
+    - cron: '0 3 * * *'
+  workflow_dispatch:
 
 jobs:
   sync:
@@ -12,7 +12,7 @@ jobs:
     permissions:
       contents: write
     outputs:
-      changed: ${{ steps.sync.outputs.changed }}
+      changed: ${{ steps.result.outputs.changed }}
 
     steps:
       - name: Checkout fork
@@ -31,108 +31,51 @@ jobs:
           git remote add upstream https://github.com/hieunc229/mailflare.git || true
           git fetch --no-tags upstream main
 
-      - name: Check if upstream has new commits
+      - name: Check for upstream changes
         id: check
         run: |
           UPSTREAM_SHA=$(git rev-parse upstream/main)
           LOCAL_SHA=$(git rev-parse HEAD)
           echo "upstream=$UPSTREAM_SHA  local=$LOCAL_SHA"
           if [ "$UPSTREAM_SHA" = "$LOCAL_SHA" ]; then
-            echo "already_synced=true" >> "$GITHUB_OUTPUT"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
           else
-            echo "already_synced=false" >> "$GITHUB_OUTPUT"
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Merge upstream changes
-        id: sync
-        if: steps.check.outputs.already_synced == 'false'
+      - name: Merge upstream
+        if: steps.check.outputs.has_changes == 'true'
         run: |
           git merge upstream/main --no-edit -X theirs || {
-            git checkout --theirs .
+            git checkout --theirs -- .
             git add .
-            git commit -m "Sync: resolve conflicts from upstream"
+            git commit -m "sync: resolve conflicts from upstream hieunc229/mailflare"
           }
-          echo "changed=true" >> "$GITHUB_OUTPUT"
 
-      - name: Apply license patch (AGPL v3 - self-hosted)
-        if: steps.sync.outputs.changed == 'true'
-        run: |
-          LICENSE_FILE="src/lib/licenses/service.ts"
-          if [ -f "$LICENSE_FILE" ]; then
-            # Inject bypass at top of getLicenseEntitlements function
-            cat > /tmp/license_patch.py << 'ENDPY'
-import pathlib, re
+      - name: Apply license patch
+        if: steps.check.outputs.has_changes == 'true'
+        run: python3 scripts/patch-license.py
 
-path = pathlib.Path("src/lib/licenses/service.ts")
-content = path.read_text(encoding="utf-8")
-
-ENTITLEMENTS_BYPASS = '''export async function getLicenseEntitlements(_env: CloudflareEnv): Promise<LicenseEntitlements> {
-\t// Self-hosted: all features unlocked (AGPL v3 - source: github.com/helpjambertechofficial/mailflare)
-\treturn {
-\t\tplan: "team",
-\t\tcanCustomizeBranding: true,
-\t\tcanManageAccounts: true,
-\t\tcanShareMailboxes: true,
-\t\taccountSeatLimit: null,
-\t\tcanForwardEmail: true,
-\t};
-}'''
-
-STATUS_BYPASS = '''export async function getLicenseStatus(env: CloudflareEnv): Promise<LicenseStatus> {
-\t// Self-hosted: all features unlocked (AGPL v3 - source: github.com/helpjambertechofficial/mailflare)
-\tconst base = await getOrCreateLicenseSettings(env);
-\treturn {
-\t\tplan: "team",
-\t\tstate: "active",
-\t\tfeatures: ["branding", "accounts", "shared_mailboxes", "email_forwarding"],
-\t\tseatLimit: null,
-\t\tinstanceId: base.instanceId,
-\t\tinstanceUrl: base.instanceUrl,
-\t\tactive: true,
-\t\tactivatedAt: base.activatedAt ?? new Date(),
-\t\tvalidatedAt: base.validatedAt ?? new Date(),
-\t};
-}'''
-
-patched = re.sub(
-    r'export async function getLicenseEntitlements\(env.*?(?=\nexport |\Z)',
-    ENTITLEMENTS_BYPASS + '\n\n',
-    content, flags=re.DOTALL
-)
-patched = re.sub(
-    r'export async function getLicenseStatus\(env.*?(?=\nexport |\Z)',
-    STATUS_BYPASS + '\n\n',
-    patched, flags=re.DOTALL
-)
-
-if patched != content:
-    path.write_text(patched, encoding="utf-8")
-    print("License patch applied.")
-else:
-    print("Already patched or pattern changed - manual review needed.")
-ENDPY
-            python3 /tmp/license_patch.py
-          fi
-
-      - name: Commit and push sync + patch
-        if: steps.sync.outputs.changed == 'true'
+      - name: Commit and push
+        if: steps.check.outputs.has_changes == 'true'
         run: |
           git add -A
-          git diff --cached --quiet && echo "Nothing to commit" || git commit -m "chore: sync upstream + apply self-hosted license patch"
+          git diff --cached --quiet && echo "Nothing to commit after patch" || git commit -m "chore: sync upstream + self-hosted license patch (AGPL v3)"
           git push origin main
 
-      - name: No upstream changes
-        if: steps.check.outputs.already_synced == 'true'
-        run: echo "Fork is already up to date. No deploy needed."
+      - name: Set output
+        id: result
+        run: |
+          echo "changed=${{ steps.check.outputs.has_changes }}" >> "$GITHUB_OUTPUT"
 
   deploy:
     name: Deploy to Cloudflare Workers
     needs: sync
-    if: ${{ always() && needs.sync.result == 'success' && needs.sync.outputs.changed == 'true' }}
+    if: needs.sync.outputs.changed == 'true'
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout updated fork
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.SYNC_TOKEN }}
