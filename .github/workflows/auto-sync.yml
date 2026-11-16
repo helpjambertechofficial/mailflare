@@ -128,7 +128,7 @@ ENDPY
   deploy:
     name: Deploy to Cloudflare Workers
     needs: sync
-    if: needs.sync.outputs.changed == 'true'
+    if: ${{ always() && needs.sync.result == 'success' && needs.sync.outputs.changed == 'true' }}
     runs-on: ubuntu-latest
 
     steps:
