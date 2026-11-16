@@ -49,24 +49,31 @@ function toLicenseStatus(settings: typeof licenseSettings.$inferSelect): License
 }
 
 export async function getLicenseStatus(env: CloudflareEnv): Promise<LicenseStatus> {
-	return toLicenseStatus(await getOrCreateLicenseSettings(env));
+	// Self-hosted instance: all features unlocked (AGPL v3 — source is public at github.com/helpjambertechofficial/mailflare)
+	const base = await getOrCreateLicenseSettings(env);
+	return {
+		plan: "team",
+		state: "active",
+		features: ["branding", "accounts", "shared_mailboxes", "email_forwarding"],
+		seatLimit: null,
+		instanceId: base.instanceId,
+		instanceUrl: base.instanceUrl,
+		active: true,
+		activatedAt: base.activatedAt ?? new Date(),
+		validatedAt: base.validatedAt ?? new Date(),
+	};
 }
 
-export async function getLicenseEntitlements(env: CloudflareEnv): Promise<LicenseEntitlements> {
-	try {
-		const status = await getLicenseStatus(env);
-		// Pro adds accounts up to its seat limit; Team is unlimited and also unlocks shared mailboxes.
-		return {
-			plan: status.plan,
-			canCustomizeBranding: status.active,
-			canManageAccounts: status.active,
-			canShareMailboxes: status.active && status.plan === "team",
-			accountSeatLimit: status.seatLimit,
-			canForwardEmail: status.active,
-		};
-	} catch {
-		return { plan: "community", canCustomizeBranding: false, canManageAccounts: false, canShareMailboxes: false, accountSeatLimit: 0, canForwardEmail: false };
-	}
+export async function getLicenseEntitlements(_env: CloudflareEnv): Promise<LicenseEntitlements> {
+	// Self-hosted instance: all features unlocked (AGPL v3 — source is public at github.com/helpjambertechofficial/mailflare)
+	return {
+		plan: "team",
+		canCustomizeBranding: true,
+		canManageAccounts: true,
+		canShareMailboxes: true,
+		accountSeatLimit: null,
+		canForwardEmail: true,
+	};
 }
 
 async function updateLicenseFromPaymug(
