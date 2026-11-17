@@ -49,7 +49,7 @@ function toLicenseStatus(settings: typeof licenseSettings.$inferSelect): License
 }
 
 export async function getLicenseStatus(env: CloudflareEnv): Promise<LicenseStatus> {
-	// Self-hosted instance: all features unlocked (AGPL v3 — source is public at github.com/helpjambertechofficial/mailflare)
+	// Self-hosted: all features unlocked (AGPL v3 - source: github.com/helpjambertechofficial/mailflare)
 	const base = await getOrCreateLicenseSettings(env);
 	return {
 		plan: "team",
@@ -63,6 +63,7 @@ export async function getLicenseStatus(env: CloudflareEnv): Promise<LicenseStatu
 		validatedAt: base.validatedAt ?? new Date(),
 	};
 }
+
 
 export async function getLicenseEntitlements(_env: CloudflareEnv): Promise<LicenseEntitlements> {
 	// Self-hosted instance: all features unlocked (AGPL v3 — source is public at github.com/helpjambertechofficial/mailflare)
